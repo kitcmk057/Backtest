@@ -1,0 +1,6 @@
+__pycache__
+backtest_output
+data
+venv
+.DS_Store
+.idea
