@@ -16,7 +16,7 @@ import itertools
 
 import pandas_ta as ta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from strategies.stock_list import get_stock_list
+from process.load_data.form_stock_list import get_stock_list
 
 
 pd.set_option('display.max_rows',None)

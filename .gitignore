@@ -4,3 +4,5 @@ data
 venv
 .DS_Store
 .idea
+backtest_result.csv
+saved_strategies.csv

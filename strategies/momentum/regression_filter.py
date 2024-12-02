@@ -5,10 +5,11 @@ from sklearn.linear_model import LinearRegression
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from strategies.stock_list import get_stock_list
+from process.load_data.form_stock_list import get_stock_list
 
 
 def rolling_exp_regression(df, column='close', days=90):
+    print(df.head())
     log_prices = np.log(df[column])
     X = np.arange(days).reshape(-1, 1)
     

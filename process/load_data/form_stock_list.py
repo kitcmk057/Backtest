@@ -8,7 +8,7 @@ __all__ = ['get_stock_list']
 
 def get_stock_list(num_stocks=3): # Current Logic is select the 3 stocks with the highest volume 
     try:
-        df = pd.read_csv('Nasdaq_screener.csv')
+        df = pd.read_csv('process/load_data/Nasdaq_screener.csv')
         df = df.sort_values(by='Volume', ascending=False)
         df = df.head(num_stocks)
         stock_list = df['Symbol'].tolist()

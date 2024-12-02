@@ -1,22 +1,25 @@
 import time
 import datetime
-
 import os
 import sys
 import multiprocessing as mp
-
 import hkfdb
 import yfinance as yf
-
 import pandas as pd
 import numpy as np
-
 import plotguy
 import itertools
-
 import pandas_ta as ta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from strategies.stock_list import get_stock_list
+from process.load_data.form_stock_list import get_stock_list
+from process.load_data.get_hist_data import get_hist_data
+from process.commission_slippery.get_sec_profile import get_sec_profile
+
+
+from strategies.momentum.regression_filter import rolling_exp_regression
+from sklearn.linear_model import LinearRegression
+
+
 
 
 pd.set_option('display.max_rows',None)
@@ -38,7 +41,6 @@ if not os.path.isdir(backtest_output_folder): os.mkdir(backtest_output_folder)
 if not os.path.isdir(signal_output_folder): os.mkdir(signal_output_folder)
 
 py_filename = os.path.basename(__file__).replace('.py','')
-
 
 
 def backtest(para_combination):
@@ -91,6 +93,8 @@ def backtest(para_combination):
 
     ##### stra specific #####
 
+
+
     df['macd_upper_pctl'] = df['macd'].rolling(macd_pctl_len).quantile(1 - (macd_pctl * 0.01))
     df['macd_lower_pctl'] = df['macd'].rolling(macd_pctl_len).quantile(macd_pctl * 0.01)
 
@@ -102,6 +106,8 @@ def backtest(para_combination):
         df['trade_logic'] = (df['trade_logic']) & (df['macd'] > df['macd_upper_pctl'])
     if macd_zone == 'bear':
         df['trade_logic'] = (df['trade_logic']) & (df['macd'] < df['macd_lower_pctl'])
+
+
 
     ##### initialization #####
 
@@ -234,54 +240,25 @@ def backtest(para_combination):
         df.to_parquet(save_path)
 
 
-def get_hist_data(code_list, start_date, end_date, freq, data_folder, file_format, update_data, market):
 
-    start_date_int = int(start_date.replace('-',''))
-    end_date_int   = int(end_date.replace('-',''))
+def rolling_exp_regression(df, column='close', days=90):
 
-    df_dict ={}
-    for code in code_list:
+    log_prices = np.log(df[column])
+    X = np.arange(days).reshape(-1, 1)
 
-        file_path = os.path.join(data_folder, code + '_' + freq + '.' + file_format)
+    slopes = []
+    for i in range(len(df) - days + 1):
+        y = log_prices.iloc[i:i+days]
+        model = LinearRegression().fit(X, y)
+        
+        slope = model.coef_[0]
+        r_squared = model.score(X, y)
+        
+        adjusted_slope = (slope * 252) * r_squared  # Annualized slope (252 trading days) multiplied by R-squared
+        slopes.append(adjusted_slope)
 
-        if os.path.isfile(file_path) and not update_data:
-            if file_format == 'csv':
-                df = pd.read_csv(file_path)
-                df['datetime'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d')
-                df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d')
-                df = df.set_index('datetime')
-            elif file_format == 'parquet':
-                df = pd.read_parquet(file_path)
-                df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
-
-            print(datetime.datetime.now(), 'successfully read data', code)
-        else:
-            if market == 'HK':
-                df = client.get_hk_stock_ohlc(code, start_date_int, end_date_int, freq, price_adj=True, vol_adj=True)
-                df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
-
-            elif market == 'US':
-                ticker = yf.Ticker(code)
-                df = ticker.history(start=start_date, end=end_date)
-                df = df[['Open','High','Low','Close','Volume']]
-                df = df[df['Volume'] > 0]
-                df.columns = map(str.lower, df.columns)
-                df = df.rename_axis('datetime')
-                df['date'] = df.index.date
-                df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
-
-            time.sleep(1)
-            if file_format == 'csv':
-                df.to_csv(file_path)
-            elif file_format == 'parquet':
-                df.to_parquet(file_path)
-            print(datetime.datetime.now(), 'successfully get data from data source', code)
-
-        df['pct_change'] = df['close'].pct_change()
-
-        df_dict[code] = df
-
-    return df_dict
+    slopes_series = pd.Series([np.nan] * (days - 1) + slopes, index=df.index)
+    return slopes_series
 
 
 def get_secondary_data(df_dict):
@@ -296,47 +273,13 @@ def get_secondary_data(df_dict):
 
         df['macd_hist-1'] = df['macd_hist'].shift(1)
 
+        # Screen stocks with the highest slope
+        df['slope'] = rolling_exp_regression(df)
+        df['sma100'] = df['close'].rolling(100).mean()
+
         df_dict[code] = df
 
     return df_dict
-
-
-def get_sec_profile(code_list, market, sectype, initial_capital):
-
-    sec_profile = {}
-    lot_size_dict = {}
-
-    if market == 'HK':
-        if sectype == 'STK':
-            info = client.get_basic_hk_stock_info()
-            for code in code_list:
-                lot_size = int(info[info['code'] == code]['lot_size'])
-                lot_size_dict[code] = lot_size
-        else:
-            for code in code_list:
-                lot_size_dict[code] = 1
-
-    elif market == 'US':
-        for code in code_list:
-            lot_size_dict[code] = 1
-
-    sec_profile['market'] = market
-    sec_profile['sectype'] = sectype
-    sec_profile['initial_capital'] = initial_capital
-    sec_profile['lot_size_dict'] = lot_size_dict
-
-    if sectype == 'STK':
-        if market == 'HK':
-            sec_profile['commission_rate'] = 0.03 * 0.01
-            sec_profile['min_commission'] = 3
-            sec_profile['platform_fee'] = 15
-        if market == 'US':
-            sec_profile['commission_each_stock']   = 0.0049
-            sec_profile['min_commission']          = 0.99
-            sec_profile['platform_fee_each_stock'] = 0.005
-            sec_profile['min_platform_fee']        = 1
-
-    return sec_profile
 
 
 def get_all_para_combination(para_dict, df_dict, sec_profile, start_date, end_date,
@@ -383,6 +326,7 @@ def get_all_para_combination(para_dict, df_dict, sec_profile, start_date, end_da
     return all_para_combination
 
 
+
 if __name__ == '__main__':
 
     start_date  = '2018-01-01'
@@ -421,15 +365,28 @@ if __name__ == '__main__':
     ########################################################################
     ########################################################################
 
+
     df_dict = get_hist_data(code_list, start_date, end_date, freq, data_folder, file_format, update_data, market)
-
     df_dict = get_secondary_data(df_dict)
-
     sec_profile = get_sec_profile(code_list, market, sectype, initial_capital)
 
-    all_para_combination = get_all_para_combination(para_dict, df_dict, sec_profile, start_date, end_date,
-                                data_folder, signal_output_folder, backtest_output_folder,
-                                run_mode, summary_mode, freq, py_filename)
+    print(sec_profile)
+
+
+    all_para_combination = get_all_para_combination(
+        para_dict, 
+        df_dict, 
+        sec_profile, 
+        start_date, 
+        end_date,
+        data_folder, 
+        signal_output_folder, 
+        backtest_output_folder,
+        run_mode, 
+        summary_mode, 
+        freq, 
+        py_filename
+    )
 
     if not read_only:
         if mp_mode:
@@ -439,6 +396,12 @@ if __name__ == '__main__':
         else:
             for para_combination in all_para_combination:
                 backtest(para_combination)
+
+
+
+
+
+
 
     plotguy.generate_backtest_result(
         all_para_combination=all_para_combination,
