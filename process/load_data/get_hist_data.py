@@ -10,7 +10,10 @@ client = hkfdb.Database('67399089')
 
 
 
-def get_hist_data(code_list, start_date, end_date, freq, data_folder, file_format, update_data, market):
+def get_hist_data(code_list, start_date, end_date, freq, file_format, update_data, market):
+
+    base_folder = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    data_folder = os.path.join(base_folder, 'data')
 
     start_date_int = int(start_date.replace('-',''))
     end_date_int   = int(end_date.replace('-',''))
