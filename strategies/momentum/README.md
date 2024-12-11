@@ -3,9 +3,9 @@ Reference from "Stock on the Move" by Joel Greenblatt
 
 
 ### STOCK FILTER: 
-- So far only trade SP500 stocks
-- stock must be above 100 MA
-- Rank according to momentum (Exponential Regression Slope in last 90 days * R^2)
+- So far only trade SP500 stocks ✅
+- stock must be above 100 MA ✅
+- Rank according to momentum (Exponential Regression Slope in last 90 days * R^2) 
 - No gap larger than 15% in the last 90 days
 
 ### BUY RULES:

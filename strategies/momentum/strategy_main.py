@@ -50,16 +50,33 @@ def rolling_exp_regression(df, column='close', days=90):
     return slopes_series
 
 
-def get_secondary_data(df_dict):
+def get_secondary_data(df_dict, start_date, end_date):
 
-    sp500_symbols = get_sp500_symbols()
+
+    sp500_df = yf.download('^GSPC', start=start_date, end=end_date, progress=False)
+    sp500_df['sma200'] = sp500_df['Close'].rolling(200).mean()
+    sp500_df['sp500_above_sma200'] = sp500_df['Close'] > sp500_df['sma200']
+    sp500_df = sp500_df[['sp500_above_sma200']]
+
 
     for code, df in df_dict.items():
+        
+
+        df = pd.concat([df, sp500_df], axis=1)
+        print(df.columns)
+        print(df)
+        sys.exit()
+
+
 
         df['slope'] = rolling_exp_regression(df)
         df['sma100'] = df['close'].rolling(100).mean()
 
+
         df_dict[code] = df
+        print(df)
+        print(df.columns)
+        sys.exit()
 
     return df_dict
 
@@ -88,6 +105,7 @@ def backtest(para_combination):
     stop_loss           = para_combination['stop_loss']
     holding_day         = para_combination['holding_day']
 
+    sp500_above_sma200  = para_combination['sp500_above_sma200']
 
     ##### sec_profile #####
     market          = sec_profile['market']
@@ -111,6 +129,7 @@ def backtest(para_combination):
     ##### stra specific #####
 
     df['trade_logic'] = df['close'] > df['sma100']     # stock must be above 100 MA 
+    df['market_logic'] = df['sp500_above_sma200']      # SP500 must be above 200 MA
 
 
 
@@ -268,8 +287,8 @@ if __name__ == '__main__':
     number_of_core = 4
     mp_mode = True
 
-    # Get 3 SP500 stocks with the highest volume
-    code_list = get_stock_list(num_stocks=3)
+    # code_list = get_stock_list(num_stocks=3)
+    code_list = get_sp500_symbols(num_stocks=5)
 
 
     para_dict = {
@@ -285,7 +304,7 @@ if __name__ == '__main__':
 
 
     df_dict                 = get_hist_data(code_list, start_date, end_date, freq, file_format, update_data, market)
-    df_dict                 = get_secondary_data(df_dict)
+    df_dict                 = get_secondary_data(df_dict, start_date, end_date)
     sec_profile             = get_sec_profile(code_list, market, sectype, initial_capital)
     all_para_combination    = get_all_para_combination(para_dict, df_dict, sec_profile, start_date, end_date, run_mode, summary_mode, freq, file_format)
 
